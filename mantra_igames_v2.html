@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Mantra iGames v2 — Prototype (Stopwatch Mode)</title>
+<style>
+:root{
+  --bg:#f3f6fa; --card:#ffffff; --muted:#8b8f98; --accent:#4aa3ff; --accent-2:#7fb8ff; --danger:#ff3b30;
+}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial;margin:0;background:linear-gradient(180deg,#f7f9fb,#eef4fb);color:#0b1220;-webkit-font-smoothing:antialiased;}
+header{padding:18px;text-align:center;}
+.logo{font-weight:800;font-size:20px;color:#08203a;}
+.container{max-width:980px;margin:0 auto;padding:12px;}
+.note{color:var(--muted);text-align:center;margin-bottom:8px;font-size:14px;}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;}
+@media(min-width:900px){ .grid{grid-template-columns:repeat(5,1fr);} }
+.card{border-radius:14px;padding:14px;background:linear-gradient(180deg,rgba(255,255,255,0.7),rgba(240,246,255,0.6));box-shadow:0 6px 18px rgba(10,20,40,0.06);display:flex;gap:12px;align-items:center;min-height:120px;position:relative;overflow:hidden;}
+.sil{width:56px;height:96px;border-radius:12px;background:linear-gradient(180deg,#fff,#eef6ff);border:2px solid rgba(10,70,120,0.06);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--muted);}
+.unit-name{font-weight:700;font-size:16px;color:#08203a;}
+.status{font-size:13px;color:var(--muted);margin-top:6px;}
+.controls{margin-left:auto;display:flex;flex-direction:column;gap:8px;align-items:flex-end;}
+.btn{border:0;padding:8px 12px;border-radius:12px;font-weight:700;cursor:pointer;background:var(--accent);color:white;box-shadow:0 6px 18px rgba(74,163,255,0.12);}
+.btn-ghost{background:transparent;color:var(--accent);border:1px solid rgba(74,163,255,0.12);padding:8px 12px;border-radius:12px;}
+.timer{font-size:18px;font-weight:800;color:#06243b;margin-top:6px;}
+.indicator{position:absolute;right:12px;top:12px;width:14px;height:14px;border-radius:999px;background:rgba(0,0,0,0.06);}
+.ind-active{background:#32d74b;}
+.ind-idle{background:#d0d7df;}
+.modal{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);background:var(--card);padding:16px;border-radius:14px;box-shadow:0 20px 50px rgba(10,20,40,0.18);width:90%;max-width:420px;z-index:60;}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,0.25);z-index:55;}
+.modal h3{margin:0 0 8px 0;font-size:18px;}
+.modal .big{font-size:28px;font-weight:800;margin-top:6px;}
+.footer{margin-top:12px;text-align:center;}
+.small-muted{color:var(--muted);font-size:13px;}
+.admin-panel{margin-top:16px;background:var(--card);padding:12px;border-radius:12px;box-shadow:0 6px 18px rgba(10,20,40,0.05);}
+.table{width:100%;border-collapse:collapse;font-size:13px}
+.table th{ text-align:left;padding:8px 6px;color:var(--muted);font-weight:700}
+.table td{padding:8px 6px;border-top:1px solid rgba(0,0,0,0.04)}
+.kpi{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
+.kpi .k{background:#fff;padding:10px;border-radius:10px;box-shadow:0 6px 18px rgba(10,20,40,0.05);min-width:140px}
+</style>
+</head>
+<body>
+<header><div class="logo">Mantra iGames</div></header>
+<div class="container">
+  <div class="note">Mode: <strong>Stopwatch</strong> — harga akan muncul saat Stop ditekan. Sistem otomatis pilih paket hemat saat durasi melewati batas.</div>
+  <div class="grid" id="grid"></div>
+
+  <div style="text-align:center;margin-top:12px;">
+    <button id="btn-admin" class="btn-ghost">Dashboard Admin</button>
+  </div>
+
+  <div id="adminPanel" class="admin-panel" style="display:none;">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div style="font-weight:800">Admin Dashboard</div>
+      <div class="small-muted">Ringkasan 30 hari</div>
+    </div>
+    <div class="kpi" id="kpis"></div>
+    <div style="margin-top:12px;font-weight:800">History Terbaru</div>
+    <table class="table" id="historyTable"><thead><tr><th>Tanggal</th><th>Unit</th><th>Paket</th><th>Durasi(jam)</th><th>Harga</th></tr></thead><tbody></tbody></table>
+    <div style="margin-top:10px;display:flex;gap:8px"><button id="exportCsv" class="btn">Export CSV</button><button id="clearHist" class="btn-ghost">Clear History</button><button id="resetAll" class="btn-ghost">Reset All</button></div>
+    <div class="small-muted" style="margin-top:8px">Data disimpan di browser (localStorage). Untuk sinkronisasi antar device, perlu hosting.</div>
+  </div>
+</div>
+
+<div id="overlay" class="overlay" style="display:none"></div>
+<div id="modal" class="modal" style="display:none"></div>
+
+<script>
+const UNITS = Array.from({length:10}).map((_,i)=> 'MiG' + String(i+1).padStart(2,'0'));
+// prices for packages
+const PRICES = {hour:10000, p3:25000, p5:40000, h12:80000, h24:130000, week:700000, month:2400000};
+// storage keys
+const stateKey = u=> 'mig_state_' + u;
+const historyKey = 'mig_history_v2';
+
+// helpers
+function now(){return Date.now();}
+function fmtMoney(n){ return 'Rp ' + Number(n).toLocaleString(); }
+function msToHMS(ms){ if(ms<=0) return '00:00:00'; let s=Math.floor(ms/1000); const h=Math.floor(s/3600); s%=3600; const m=Math.floor(s/60); const sec=s%60; return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0'); }
+function saveState(u,s){ localStorage.setItem(stateKey(u), JSON.stringify(s)); broadcast(u); }
+function loadState(u){ const v=localStorage.getItem(stateKey(u)); return v?JSON.parse(v):{status:'idle',start:0,end:0,remaining:0}; }
+function addHistory(e){ let hist = JSON.parse(localStorage.getItem(historyKey)||'[]'); hist.unshift(e); localStorage.setItem(historyKey, JSON.stringify(hist)); broadcast('hist'); }
+function loadHistory(){ return JSON.parse(localStorage.getItem(historyKey)||'[]'); }
+function broadcast(k){ try{ localStorage.setItem('mig_bcast_'+k, Date.now()); }catch(e){} }
+
+// init
+UNITS.forEach(u=>{ if(!localStorage.getItem(stateKey(u))) saveState(u,{status:'idle',start:0,end:0,remaining:0}); });
+
+// render grid
+const grid = document.getElementById('grid');
+function renderGrid(){
+  grid.innerHTML='';
+  UNITS.forEach((u, idx)=>{
+    const s = loadState(u);
+    const rem = s.status==='active' ? Math.max(0, now()-s.start) : (s.status==='paused' ? s.remaining : 0);
+    const statusLabel = s.status==='idle' ? 'Idle' : (s.status==='active' ? 'Aktif' : s.status==='paused' ? 'Paused' : s.status);
+    const colorList = ['linear-gradient(180deg,#f8fbff,#eef6ff)','linear-gradient(180deg,#f8fff7,#ecfff0)','linear-gradient(180deg,#f5f3ff,#f0eefc)','linear-gradient(180deg,#f6f8f9,#eef2f6)','linear-gradient(180deg,#fffaf0,#fff6e6)','linear-gradient(180deg,#fff6ee,#fff0e6)','linear-gradient(180deg,#fff6f9,#fff0f5)'];
+    const bg = colorList[idx % colorList.length];
+    const card = document.createElement('div'); card.className='card'; card.style.background = bg;
+    card.innerHTML = `
+      <div class="sil"><div style="font-size:12px;color:var(--muted)">${u}</div></div>
+      <div style="flex:1">
+        <div class="unit-name">${u}</div>
+        <div class="status" id="${u}-status">Status: ${statusLabel}</div>
+        <div class="timer" id="${u}-timer">${s.status==='active'? msToHMS(rem) : '--:--:--'}</div>
+      </div>
+      <div class="controls">
+        <div style="display:flex;gap:8px;flex-direction:column;align-items:flex-end">
+          <button class="btn small" onclick="startStopwatch('${u}')">${s.status==='active'?'Running':'Start'}</button>
+          <button class="btn-ghost small" onclick="pauseResume('${u}')">${s.status==='paused'?'Resume':'Pause'}</button>
+          <button class="btn-ghost small" onclick="stopAndCharge('${u}')">Stop</button>
+          <button class="btn-ghost small" onclick="openUnit('${u}')">Open</button>
+        </div>
+      </div>
+      <div class="indicator ${s.status==='active'?'ind-active':'ind-idle'}" title="${statusLabel}"></div>`;
+    grid.appendChild(card);
+  });
+}
+renderGrid();
+
+// modal helpers
+const overlay = document.getElementById('overlay');
+const modal = document.getElementById('modal');
+function showModal(html){ overlay.style.display='block'; modal.style.display='block'; modal.innerHTML = html; }
+function closeModal(){ overlay.style.display='none'; modal.style.display='none'; modal.innerHTML=''; }
+overlay.addEventListener('click', closeModal);
+
+// stopwatch controls
+function startStopwatch(u){
+  const s = loadState(u);
+  if(s.status==='active') return alert('Sudah aktif');
+  const st = now();
+  s.status='active'; s.start = st; s.remaining = 0;
+  saveState(u,s);
+  renderGrid();
+  renderAdmin();
+}
+function pauseResume(u){
+  const s = loadState(u);
+  if(s.status==='active'){ // pause
+    s.remaining = now() - s.start;
+    s.status='paused'; s.start = 0;
+    saveState(u,s);
+  } else if(s.status==='paused'){ // resume
+    s.start = now(); s.status='active';
+    saveState(u,s);
+  } else {
+    alert('Timer belum aktif');
+  }
+  renderGrid(); renderAdmin();
+}
+function computePackageAndPrice(ms){
+  const hours = ms/3600000;
+  if(hours <= 1) return {pack:'1 Jam', price:PRICES.hour};
+  if(hours <= 3) return {pack:'3 Jam', price:PRICES.p3};
+  if(hours <= 5) return {pack:'5 Jam', price:PRICES.p5};
+  if(hours <= 12) return {pack:'12 Jam', price:PRICES.h12};
+  if(hours <= 24) return {pack:'24 Jam', price:PRICES.h24};
+  if(hours <= 24*7) return {pack:'Mingguan', price:PRICES.week};
+  return {pack:'Bulanan', price:PRICES.month};
+}
+function stopAndCharge(u){
+  const s = loadState(u);
+  if(s.status==='idle') return alert('Timer tidak aktif');
+  // calculate elapsed ms
+  const elapsed = s.status==='active' ? (now() - s.start) : (s.status==='paused' ? s.remaining : 0);
+  const res = computePackageAndPrice(elapsed);
+  // mark history entry
+  const entry = {unit:u, start: s.status==='active'? s.start : (now()-elapsed), end: now(), pack: res.pack, price: res.price, complete:true};
+  addHistory(entry);
+  // reset state
+  saveState(u,{status:'idle',start:0,end:0,remaining:0});
+  // show modal with price
+  showModal(`<h3>Checkout — ${u}</h3><div class="big">${res.pack} • ${fmtMoney(res.price)}</div><div style="margin-top:12px;" class="small-muted">Durasi: ${msToHMS(elapsed)}</div><div class="footer"><button class="btn" onclick="closeModal(); renderGrid(); renderAdmin();">OK</button></div>`);
+  renderGrid(); renderAdmin();
+}
+
+// Open unit detailed view (customer/admin)
+function openUnit(u){
+  const s = loadState(u);
+  const elapsed = s.status==='active' ? (now() - s.start) : (s.status==='paused' ? s.remaining : 0);
+  const pkg = computePackageAndPrice(elapsed).pack;
+  const html = `<h3>${u}</h3><div style="text-align:center;margin-top:8px"><div style="font-size:48px;font-weight:800">${msToHMS(elapsed)}</div><div style="margin-top:8px" class="small-muted">Paket Aktif: ${pkg}</div><div style="margin-top:12px;display:flex;gap:8px;justify-content:center"><button class="btn" onclick="startStopwatch('${u}'); closeModal();">Start</button><button class="btn-ghost" onclick="pauseResume('${u}'); closeModal();">Pause/Resume</button><button class="btn-ghost" onclick="stopAndCharge('${u}'); closeModal();">Stop</button></div></div><div style="margin-top:10px;text-align:center"><a href="#" onclick="closeModal();return false;" class="small-muted">Kembali</a></div>`;
+  showModal(html);
+}
+
+// ticker update UI
+function tick(){
+  UNITS.forEach(u=>{
+    const s = loadState(u);
+    const elTime = document.getElementById(u+'-timer');
+    const elStatus = document.getElementById(u+'-status');
+    const rem = s.status==='active' ? Math.max(0, now()-s.start) : (s.status==='paused' ? s.remaining : 0);
+    if(elTime) elTime.innerText = s.status==='active' ? msToHMS(rem) : '--:--:--';
+    if(elStatus) elStatus.innerText = 'Status: ' + (s.status==='idle' ? 'Idle' : s.status==='active' ? 'Aktif' : 'Paused');
+  });
+  renderKPIs();
+}
+setInterval(tick,1000);
+tick();
+
+// Admin UI
+const adminBtn = document.getElementById('btn-admin');
+const adminPanel = document.getElementById('adminPanel');
+adminBtn.addEventListener('click', ()=>{ adminPanel.style.display = adminPanel.style.display==='none'?'block':'none'; renderAdmin(); });
+
+function renderKPIs(){
+  const hist = loadHistory();
+  const cutoff = now() - (30*24*60*60*1000);
+  let totalMs=0, income=0, cnt=0;
+  hist.forEach(h=>{
+    if(h.start >= cutoff){
+      totalMs += (h.end - h.start);
+      income += (h.price || 0);
+      cnt++;
+    }
+  });
+  const hours = Math.round((totalMs/3600000)*100)/100;
+  const kpis = document.getElementById('kpis');
+  kpis.innerHTML = `<div class="k"><div style="font-weight:800">${hours} hrs</div><div class="small-muted">Total durasi (30d)</div></div>
+                    <div class="k"><div style="font-weight:800">${fmtMoney(income)}</div><div class="small-muted">Pendapatan (30d)</div></div>
+                    <div class="k"><div style="font-weight:800">${cnt}</div><div class="small-muted">Transaksi</div></div>`;
+}
+
+function renderAdmin(){
+  renderKPIs();
+  const hist = loadHistory();
+  const tbody = document.querySelector('#historyTable tbody');
+  tbody.innerHTML='';
+  hist.slice(0,100).forEach(h=>{
+    const tr = document.createElement('tr');
+    const date = new Date(h.start).toLocaleString();
+    const durH = Math.round(((h.end - h.start)/3600000)*100)/100;
+    tr.innerHTML = `<td>${date}</td><td>${h.unit}</td><td>${h.pack}</td><td>${durH}</td><td>${fmtMoney(h.price)}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+// exports & controls
+document.getElementById('exportCsv').addEventListener('click', ()=>{
+  const hist = loadHistory();
+  let rows = [['Tanggal','Unit','Paket','DurasiHours','Harga']];
+  hist.forEach(h=> rows.push([new Date(h.start).toLocaleString(), h.unit, h.pack, Math.round(((h.end-h.start)/3600000)*100)/100, h.price]));
+  const csv = rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'mantra_history_v2.csv'; a.click();
+});
+document.getElementById('clearHist').addEventListener('click', ()=>{ if(confirm('Hapus histori?')){ localStorage.removeItem(historyKey); renderAdmin(); alert('Dihapus'); } });
+document.getElementById('resetAll').addEventListener('click', ()=>{ if(confirm('Reset semua timer?')){ UNITS.forEach(u=> saveState(u,{status:'idle',start:0,end:0,remaining:0})); renderGrid(); renderAdmin(); alert('Reset selesai'); } });
+
+// storage sync
+window.addEventListener('storage',(e)=>{ if(e.key && e.key.startsWith('mig_bcast_')){ renderGrid(); renderAdmin(); } });
+
+// initial render
+renderGrid();
+renderAdmin();
+
+</script>
+</body>
+</html>
